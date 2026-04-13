@@ -12,7 +12,7 @@ class ActivityController extends Controller
      */
     public function index()
     {
-        $activities = \App\Models\Activity::where('status', 'active')->get();
+        $activities = \App\Models\Activity::with('activityHead.user')->where('status', 'active')->get();
         return response()->json([
             'status' => 'success',
             'data' => $activities

@@ -41,7 +41,7 @@ class SchoolController extends Controller
             });
         }
 
-        $schools = $query->latest()->paginate($request->get('per_page', 10));
+        $schools = $query->latest()->paginate($request->input('per_page', 10));
 
         return response()->json($schools);
     }

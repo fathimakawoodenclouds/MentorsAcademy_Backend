@@ -50,7 +50,7 @@ class AdminManagerController extends Controller
         }
 
         // Return standard Laravel pagination format natively
-        $admins = $query->latest()->paginate($request->get('per_page', 10));
+        $admins = $query->latest()->paginate($request->input('per_page', 10));
         
         return response()->json($admins); // Return raw paginator object
     }

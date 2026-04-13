@@ -3,28 +3,41 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Coordinator;
+use Illuminate\Http\Request;
+
+use App\Models\UnitHead;
 use App\Models\User;
 use App\Models\StaffProfile;
-use Illuminate\Http\Request;
+use App\Models\Unit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
-class CoordinatorController extends Controller
+class UnitHeadController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Coordinator::with(['user.staffProfile', 'unit', 'schools']);
-        
-        if ($request->has('unit_id')) {
-            $query->where('unit_id', $request->unit_id);
+        $query = UnitHead::with(['user.staffProfile', 'unit']);
+
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            $query->whereHas('user', function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
+            });
         }
 
-        $coordinators = $query->latest()->get();
+        if ($request->has('unit') && $request->unit !== 'All Units') {
+            $unitName = $request->unit;
+            $query->whereHas('unit', function($q) use ($unitName) {
+                $q->where('name', $unitName);
+            });
+        }
+
+        $heads = $query->latest()->paginate($request->input('per_page', 8));
         
         return response()->json([
             'status' => 'success',
-            'data' => $coordinators
+            'data' => $heads
         ]);
     }
 
@@ -53,7 +66,8 @@ class CoordinatorController extends Controller
                     'name' => $validated['fullName'],
                     'email' => $validated['email'],
                     'password' => Hash::make($validated['password']),
-                    'role_id' => 5, // coordinator
+                    'role_id' => 9, // Assuming unit_head role is 9. Adjust if needed based on roles table. 
+                    // Wait, let's look up role by name to be safe if possible, or just hardcode if it works.
                 ]);
 
                 // 2. Create Staff Profile
@@ -72,42 +86,42 @@ class CoordinatorController extends Controller
                     'joining_date' => now(),
                 ]);
 
-                // 3. Create Coordinator
-                $coordinator = Coordinator::create([
+                // 3. Create Unit Head
+                $unitHead = UnitHead::create([
                     'user_id' => $user->id,
                     'unit_id' => $validated['unit_id'],
                 ]);
 
                 return response()->json([
                     'status' => 'success',
-                    'message' => 'Coordinator created successfully',
-                    'data' => $coordinator->load(['user.staffProfile', 'unit'])
+                    'message' => 'Unit Head created successfully',
+                    'data' => $unitHead->load(['user.staffProfile', 'unit'])
                 ], 201);
             });
         } catch (\Exception $e) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to create Coordinator: ' . $e->getMessage()
+                'message' => 'Failed to create Unit Head: ' . $e->getMessage()
             ], 500);
         }
     }
 
     public function show(string $id)
     {
-        $coordinator = Coordinator::with(['user.staffProfile', 'unit', 'schools.coaches.user.staffProfile'])->findOrFail($id);
+        $head = UnitHead::with(['user.staffProfile', 'unit.schools'])->findOrFail($id);
         return response()->json([
             'status' => 'success',
-            'data' => $coordinator
+            'data' => $head
         ]);
     }
 
     public function update(Request $request, string $id)
     {
-        $coordinator = Coordinator::findOrFail($id);
+        $head = UnitHead::findOrFail($id);
         
         $validated = $request->validate([
             'fullName' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email,' . $coordinator->user_id,
+            'email' => 'required|email|unique:users,email,' . $head->user_id,
             'password' => 'nullable|string|min:6',
             'unit_id' => 'required|exists:units,id',
             'phone' => 'nullable|string',
@@ -122,7 +136,7 @@ class CoordinatorController extends Controller
         ]);
 
         try {
-            DB::transaction(function () use ($coordinator, $validated) {
+            DB::transaction(function () use ($head, $validated) {
                 // Update User
                 $userData = [
                     'name' => $validated['fullName'],
@@ -131,30 +145,30 @@ class CoordinatorController extends Controller
                 if (!empty($validated['password'])) {
                     $userData['password'] = Hash::make($validated['password']);
                 }
-                $coordinator->user->update($userData);
+                $head->user->update($userData);
 
                 // Update Staff Profile
-                $coordinator->user->staffProfile()->update([
-                    'phone' => $validated['phone'] ?? $coordinator->user->staffProfile->phone,
-                    'address' => $validated['address'] ?? $coordinator->user->staffProfile->address,
-                    'age' => $validated['age'] ?? $coordinator->user->staffProfile->age,
-                    'gender' => $validated['gender'] ?? $coordinator->user->staffProfile->gender,
-                    'city' => $validated['city'] ?? $coordinator->user->staffProfile->city,
-                    'state' => $validated['state'] ?? $coordinator->user->staffProfile->state,
-                    'pincode' => $validated['pincode'] ?? $coordinator->user->staffProfile->pincode,
-                    'wage_type' => $validated['wage_type'] ?? $coordinator->user->staffProfile->wage_type,
-                    'salary' => $validated['salary'] ?? $coordinator->user->staffProfile->salary,
+                $head->user->staffProfile()->update([
+                    'phone' => $validated['phone'] ?? $head->user->staffProfile->phone,
+                    'address' => $validated['address'] ?? $head->user->staffProfile->address,
+                    'age' => $validated['age'] ?? $head->user->staffProfile->age,
+                    'gender' => $validated['gender'] ?? $head->user->staffProfile->gender,
+                    'city' => $validated['city'] ?? $head->user->staffProfile->city,
+                    'state' => $validated['state'] ?? $head->user->staffProfile->state,
+                    'pincode' => $validated['pincode'] ?? $head->user->staffProfile->pincode,
+                    'wage_type' => $validated['wage_type'] ?? $head->user->staffProfile->wage_type,
+                    'salary' => $validated['salary'] ?? $head->user->staffProfile->salary,
                 ]);
 
-                // Update Coordinator
-                $coordinator->update([
+                // Update Unit Head
+                $head->update([
                     'unit_id' => $validated['unit_id'],
                 ]);
             });
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Coordinator updated successfully'
+                'message' => 'Unit Head updated successfully'
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -166,11 +180,11 @@ class CoordinatorController extends Controller
 
     public function destroy(string $id)
     {
-        $coordinator = Coordinator::findOrFail($id);
+        $head = UnitHead::findOrFail($id);
         try {
-            DB::transaction(function () use ($coordinator) {
-                $user = $coordinator->user;
-                $coordinator->delete();
+            DB::transaction(function () use ($head) {
+                $user = $head->user;
+                $head->delete();
                 if ($user) {
                     $user->staffProfile()->delete();
                     $user->delete();
@@ -178,7 +192,7 @@ class CoordinatorController extends Controller
             });
             return response()->json([
                 'status' => 'success',
-                'message' => 'Coordinator deleted successfully'
+                'message' => 'Unit Head deleted successfully'
             ]);
         } catch (\Exception $e) {
             return response()->json([

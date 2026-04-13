@@ -28,9 +28,14 @@ trait HasSlug
         $sourceColumn = $this->getSlugSourceColumn();
         $slug = Str::slug($this->$sourceColumn);
         
-        $count = static::where('slug', 'like', "{$slug}%")
-            ->where('id', '!=', $this->id ?? 0)
-            ->count();
+        $query = static::where('slug', 'like', "{$slug}%")
+            ->where('id', '!=', $this->id ?? 0);
+            
+        if (in_array('Illuminate\Database\Eloquent\SoftDeletes', class_uses_recursive(static::class))) {
+            $query->withTrashed();
+        }
+            
+        $count = $query->count();
             
         $this->slug = $count > 0 ? "{$slug}-{$count}" : $slug;
     }

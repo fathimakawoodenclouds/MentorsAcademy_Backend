@@ -17,7 +17,7 @@ class CoachController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Coach::with(['user', 'school:id,name', 'activityHead.user', 'user.staffProfile', 'activity']);
+        $query = Coach::with(['user', 'school.unit', 'activityHead.user', 'user.staffProfile', 'activity']);
 
         if ($request->has('school_id')) {
             $query->where('school_id', $request->school_id);
@@ -31,7 +31,7 @@ class CoachController extends Controller
             });
         }
 
-        $coaches = $query->latest()->paginate($request->get('per_page', 10));
+        $coaches = $query->latest()->paginate($request->input('per_page', 10));
         
         return response()->json($coaches);
     }
@@ -67,7 +67,7 @@ class CoachController extends Controller
 
         return \DB::transaction(function() use ($validated) {
             // 1. Create User
-            $user = \App\Models\User::create([
+            $user = User::create([
                 'name' => $validated['fullName'],
                 'email' => $validated['username'],
                 'password' => \Hash::make($validated['password']),
@@ -97,7 +97,7 @@ class CoachController extends Controller
                 'specialization' => $validated['specialization'],
             ]);
 
-            return $this->successResponse($coach->load(['user', 'school', 'activityHead', 'user.staffProfile', 'activity']), 'Coach successfully created!', 201);
+            return $this->successResponse($coach->load(['user', 'school.unit', 'activityHead', 'user.staffProfile', 'activity']), 'Coach successfully created!', 201);
         });
     }
 
@@ -106,7 +106,7 @@ class CoachController extends Controller
      */
     public function show(string $id)
     {
-        $coach = Coach::with(['user.staffProfile', 'school', 'activityHead.user', 'activity'])->find($id);
+        $coach = Coach::with(['user.staffProfile', 'school.unit', 'activityHead.user', 'activity'])->find($id);
         
         if (!$coach) {
             return $this->errorResponse('Coach not found', 404);
@@ -181,7 +181,7 @@ class CoachController extends Controller
             ];
             $coach->update(array_filter($coachData, fn($v) => !is_null($v)));
 
-            return $this->successResponse($coach->load(['user', 'school', 'activityHead', 'user.staffProfile', 'activity']), 'Coach successfully updated!');
+            return $this->successResponse($coach->load(['user', 'school.unit', 'activityHead', 'user.staffProfile', 'activity']), 'Coach successfully updated!');
         });
     }
 

@@ -18,7 +18,7 @@ class UnitController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Unit::with(['unitHead:id,name']);
+        $query = Unit::with(['unitHead.user']);
 
         if ($request->has('search') && !empty($request->search)) {
             $search = $request->search;
@@ -41,16 +41,26 @@ class UnitController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'unit_head_id' => 'nullable|exists:users,id',
             'location' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:255',
+            'state' => 'nullable|string|max:255',
             'pin_code' => 'nullable|string|max:20',
             'status' => 'nullable|string|in:ACTIVE,INACTIVE,PENDING',
+            'unit_head_id' => 'nullable|exists:users,id',
         ]);
+
+        $unitHeadUserId = $validated['unit_head_id'] ?? null;
+        unset($validated['unit_head_id']);
 
         $unit = Unit::create($validated);
 
-        return $this->successResponse($unit->load('unitHead'), 'Unit successfully created!', 201);
+        if ($unitHeadUserId) {
+            $unit->unitHead()->create([
+                'user_id' => $unitHeadUserId,
+            ]);
+        }
+
+        return $this->successResponse($unit->load('unitHead.user'), 'Unit successfully created!', 201);
     }
 
     /**
@@ -58,8 +68,8 @@ class UnitController extends Controller
      */
     public function show(string $id)
     {
-        $unit = Unit::with(['unitHead', 'schools'])
-                    ->withCount(['schools', 'coaches'])
+        $unit = Unit::with(['unitHead.user', 'schools'])
+                    ->withCount(['schools', 'coaches', 'coordinators'])
                     ->find($id);
         
         if (!$unit) {
@@ -82,16 +92,29 @@ class UnitController extends Controller
 
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
-            'unit_head_id' => 'nullable|exists:users,id',
             'location' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:255',
+            'state' => 'nullable|string|max:255',
             'pin_code' => 'nullable|string|max:20',
             'status' => 'nullable|string|in:ACTIVE,INACTIVE,PENDING',
+            'unit_head_id' => 'nullable|exists:users,id',
         ]);
+
+        // Separate unit_head_id from unit fields
+        $unitHeadUserId = $validated['unit_head_id'] ?? null;
+        unset($validated['unit_head_id']);
 
         $unit->update($validated);
 
-        return $this->successResponse($unit->load('unitHead'), 'Unit successfully updated!');
+        // Handle Unit Head assignment
+        if ($unitHeadUserId) {
+            $unit->unitHead()->updateOrCreate(
+                ['unit_id' => $unit->id],
+                ['user_id' => $unitHeadUserId]
+            );
+        }
+
+        return $this->successResponse($unit->load('unitHead.user'), 'Unit successfully updated!');
     }
 
     /**

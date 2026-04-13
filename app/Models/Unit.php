@@ -16,7 +16,6 @@ class Unit extends Model
     protected $fillable = [
         'unit_id',
         'name',
-        'unit_head_id', // Restoration
         'location',
         'state',
         'city',
@@ -35,7 +34,7 @@ class Unit extends Model
 
     public function unitHead()
     {
-        return $this->belongsTo(User::class, 'unit_head_id');
+        return $this->hasOne(UnitHead::class);
     }
 
     public function schools()
@@ -46,5 +45,10 @@ class Unit extends Model
     public function coaches()
     {
         return $this->hasManyThrough(Coach::class, School::class);
+    }
+
+    public function coordinators()
+    {
+        return $this->hasMany(Coordinator::class);
     }
 }
