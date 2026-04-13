@@ -35,6 +35,15 @@ Route::prefix('v1/super-admin')->middleware(['auth:sanctum', 'role:super_admin']
         Route::get('/states', [\App\Http\Controllers\LocationController::class, 'getStates']);
         Route::get('/cities/{stateId}', [\App\Http\Controllers\LocationController::class, 'getCities']);
     });
+
+    // Chat / Messaging
+    Route::get('/sales-users', [\App\Http\Controllers\Admin\ChatController::class, 'salesUsers']);
+    Route::get('/chat/conversations', [\App\Http\Controllers\Admin\ChatController::class, 'conversations']);
+    Route::get('/chat/messages/{userId}', [\App\Http\Controllers\Admin\ChatController::class, 'messages']);
+    Route::post('/chat/send', [\App\Http\Controllers\Admin\ChatController::class, 'send']);
+    Route::patch('/chat/read', [\App\Http\Controllers\Admin\ChatController::class, 'markAsRead']);
+    Route::get('/chat/users', [\App\Http\Controllers\Admin\ChatController::class, 'availableUsers']);
+    Route::post('/upload-media', [\App\Http\Controllers\Admin\MediaUploadController::class, 'upload']);
 });
 
 /**
@@ -52,6 +61,14 @@ Route::prefix('v1/sales-executive')->middleware(['auth:sanctum', 'role:sales_exe
             ]
         ]);
     });
+
+    // Chat / Messaging
+    Route::get('/chat/conversations', [\App\Http\Controllers\Admin\ChatController::class, 'conversations']);
+    Route::get('/chat/messages/{userId}', [\App\Http\Controllers\Admin\ChatController::class, 'messages']);
+    Route::post('/chat/send', [\App\Http\Controllers\Admin\ChatController::class, 'send']);
+    Route::patch('/chat/read', [\App\Http\Controllers\Admin\ChatController::class, 'markAsRead']);
+    Route::get('/chat/users', [\App\Http\Controllers\Admin\ChatController::class, 'availableUsers']);
+    Route::post('/upload-media', [\App\Http\Controllers\Admin\MediaUploadController::class, 'upload']);
 });
 
 /**
