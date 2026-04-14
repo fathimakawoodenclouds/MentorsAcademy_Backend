@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\OfficeStaff;
 use App\Models\Unit;
 use App\Models\User;
 use App\Models\Role;
@@ -19,6 +20,10 @@ class UnitController extends Controller
     public function index(Request $request)
     {
         $query = Unit::with(['unitHead.user']);
+        $allowedUnitIds = $this->resolveAllowedUnitIds($request);
+        if ($allowedUnitIds !== null) {
+            $query->whereIn('id', $allowedUnitIds);
+        }
 
         if ($request->has('search') && !empty($request->search)) {
             $search = $request->search;
@@ -74,6 +79,11 @@ class UnitController extends Controller
         
         if (!$unit) {
             return $this->errorResponse('Unit not found', 404);
+        }
+
+        $allowedUnitIds = $this->resolveAllowedUnitIds(request());
+        if ($allowedUnitIds !== null && ! in_array((int) $unit->id, $allowedUnitIds, true)) {
+            return $this->errorResponse('Unauthorized to access this unit.', 403);
         }
         
         return $this->successResponse($unit, 'Unit details retrieved.');
@@ -154,10 +164,33 @@ class UnitController extends Controller
      */
     public function options()
     {
-        $units = Unit::query()
+        $query = Unit::query();
+        $allowedUnitIds = $this->resolveAllowedUnitIds(request());
+        if ($allowedUnitIds !== null) {
+            $query->whereIn('id', $allowedUnitIds);
+        }
+
+        $units = $query
             ->orderBy('name')
             ->get(['id', 'unit_id', 'name']);
 
         return $this->successResponse($units, 'Unit options loaded.');
+    }
+
+    private function resolveAllowedUnitIds(Request $request): ?array
+    {
+        $authUser = $request->user();
+        if (! $authUser || ! $authUser->hasRole('office_staff')) {
+            return null;
+        }
+
+        return OfficeStaff::query()
+            ->where('user_id', $authUser->id)
+            ->first()
+            ?->units()
+            ->pluck('units.id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all() ?? [];
     }
 }

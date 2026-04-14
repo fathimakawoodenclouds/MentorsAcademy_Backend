@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Coach;
+use App\Models\OfficeStaff;
 use App\Models\User;
 use App\Traits\ApiResponseTrait;
 use Illuminate\Http\Request;
@@ -18,6 +19,12 @@ class CoachController extends Controller
     public function index(Request $request)
     {
         $query = Coach::with(['user', 'school.unit', 'activityHead.user', 'user.staffProfile', 'activity']);
+        $allowedUnitIds = $this->resolveAllowedUnitIds($request);
+        if ($allowedUnitIds !== null) {
+            $query->whereHas('school', function ($q) use ($allowedUnitIds) {
+                $q->whereIn('unit_id', $allowedUnitIds);
+            });
+        }
 
         if ($request->has('school_id')) {
             $query->where('school_id', $request->school_id);
@@ -111,6 +118,11 @@ class CoachController extends Controller
         if (!$coach) {
             return $this->errorResponse('Coach not found', 404);
         }
+
+        $allowedUnitIds = $this->resolveAllowedUnitIds(request());
+        if ($allowedUnitIds !== null && ! in_array((int) $coach->school?->unit_id, $allowedUnitIds, true)) {
+            return $this->errorResponse('Unauthorized to access this coach.', 403);
+        }
         
         return $this->successResponse($coach, 'Coach details retrieved.');
     }
@@ -199,5 +211,22 @@ class CoachController extends Controller
         $coach->delete();
 
         return $this->successResponse(null, 'Coach successfully deleted!');
+    }
+
+    private function resolveAllowedUnitIds(Request $request): ?array
+    {
+        $authUser = $request->user();
+        if (! $authUser || ! $authUser->hasRole('office_staff')) {
+            return null;
+        }
+
+        return OfficeStaff::query()
+            ->where('user_id', $authUser->id)
+            ->first()
+            ?->units()
+            ->pluck('units.id')
+            ->map(fn ($unitId) => (int) $unitId)
+            ->values()
+            ->all() ?? [];
     }
 }

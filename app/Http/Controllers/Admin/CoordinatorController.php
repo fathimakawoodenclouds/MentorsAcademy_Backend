@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Coordinator;
+use App\Models\OfficeStaff;
 use App\Models\User;
 use App\Models\StaffProfile;
 use Illuminate\Http\Request;
@@ -15,6 +16,10 @@ class CoordinatorController extends Controller
     public function index(Request $request)
     {
         $query = Coordinator::with(['user.staffProfile', 'unit', 'schools']);
+        $allowedUnitIds = $this->resolveAllowedUnitIds($request);
+        if ($allowedUnitIds !== null) {
+            $query->whereIn('unit_id', $allowedUnitIds);
+        }
         
         if ($request->has('unit_id')) {
             $query->where('unit_id', $request->unit_id);
@@ -95,6 +100,13 @@ class CoordinatorController extends Controller
     public function show(string $id)
     {
         $coordinator = Coordinator::with(['user.staffProfile', 'unit', 'schools.coaches.user.staffProfile'])->findOrFail($id);
+        $allowedUnitIds = $this->resolveAllowedUnitIds(request());
+        if ($allowedUnitIds !== null && ! in_array((int) $coordinator->unit_id, $allowedUnitIds, true)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Unauthorized to access this coordinator.'
+            ], 403);
+        }
         return response()->json([
             'status' => 'success',
             'data' => $coordinator
@@ -186,5 +198,22 @@ class CoordinatorController extends Controller
                 'message' => 'Failed to delete: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    private function resolveAllowedUnitIds(Request $request): ?array
+    {
+        $authUser = $request->user();
+        if (! $authUser || ! $authUser->hasRole('office_staff')) {
+            return null;
+        }
+
+        return OfficeStaff::query()
+            ->where('user_id', $authUser->id)
+            ->first()
+            ?->units()
+            ->pluck('units.id')
+            ->map(fn ($unitId) => (int) $unitId)
+            ->values()
+            ->all() ?? [];
     }
 }

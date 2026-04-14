@@ -21,6 +21,7 @@ use App\Http\Controllers\LocationController;
 use App\Http\Controllers\OfficeStaff\OfficeStaffDashboardController;
 use App\Http\Controllers\OfficeStaff\OfficeStaffAttendanceController;
 use App\Http\Controllers\SuperAdmin\AdminManagerController;
+use App\Http\Controllers\SuperAdmin\DashboardController;
 use App\Models\SalesExecutive;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
@@ -37,10 +38,14 @@ Route::prefix('v1/super-admin')->middleware(['auth:sanctum', 'role:super_admin']
     Route::delete('/admins/{id}', [AdminManagerController::class, 'destroy']);
 
     Route::get('/roles', [AdminManagerController::class, 'getRoles']);
+    Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
+    Route::post('/leave-requests/{leaveRequestId}/approve', [DashboardController::class, 'approveLeaveRequest'])->whereNumber('leaveRequestId');
+    Route::post('/leave-requests/{leaveRequestId}/reject', [DashboardController::class, 'rejectLeaveRequest'])->whereNumber('leaveRequestId');
 
     Route::get('office-staff/{id}/attendance', [OfficeStaffController::class, 'attendance'])->whereNumber('id');
     Route::get('office-staff/{id}/payrolls', [OfficeStaffController::class, 'payrolls'])->whereNumber('id');
     Route::post('office-staff/{id}/payrolls', [OfficeStaffController::class, 'storePayroll'])->whereNumber('id');
+    Route::patch('office-staff/{id}/payrolls/{payrollId}', [OfficeStaffController::class, 'updatePayroll'])->whereNumber(['id', 'payrollId']);
     Route::apiResource('office-staff', OfficeStaffController::class);
 
     Route::get('/sales-users', [ChatController::class, 'salesUsers']);
@@ -123,6 +128,8 @@ Route::prefix('v1/sales-executive')->middleware(['auth:sanctum', 'role:sales_exe
  */
 Route::prefix('v1/office-staff')->middleware(['auth:sanctum', 'role:office_staff'])->group(function () {
     Route::get('/dashboard', [OfficeStaffDashboardController::class, 'dashboard']);
+    Route::get('/payrolls', [OfficeStaffDashboardController::class, 'payrollHistory']);
+    Route::post('/leave-requests', [OfficeStaffDashboardController::class, 'applyLeave']);
     Route::post('/attendance/check-in', [OfficeStaffDashboardController::class, 'checkIn']);
     Route::post('/attendance/check-out', [OfficeStaffDashboardController::class, 'checkOut']);
     Route::get('/attendance/overview', [OfficeStaffAttendanceController::class, 'overview']);

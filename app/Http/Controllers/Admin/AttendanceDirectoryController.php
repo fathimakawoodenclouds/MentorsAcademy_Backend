@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\Payroll;
+use App\Models\Role;
 use App\Models\User;
 use App\Traits\ApiResponseTrait;
 use Carbon\Carbon;
@@ -22,31 +23,57 @@ class AttendanceDirectoryController extends Controller
         $date = $request->input('date', now()->toDateString());
         $search = (string) $request->input('search', '');
 
-        $query = Attendance::query()
-            ->with(['user.role', 'user.staffProfile', 'user.officeStaff'])
-            ->whereDate('date', $date)
-            ->orderByDesc('updated_at');
+        $staffRoleIds = Role::query()
+            ->whereNotIn('name', ['super_admin', 'admin'])
+            ->pluck('id')
+            ->all();
+
+        $userQuery = User::query()
+            ->with([
+                'role',
+                'staffProfile',
+                'officeStaff.units',
+                'unitHead.unit',
+                'coordinator.unit',
+                'coordinator.schools',
+                'coach.school.unit',
+                'coach.school.coordinator.user',
+                'activityHead.activity',
+                'salesExecutive',
+            ])
+            ->whereIn('role_id', $staffRoleIds)
+            ->orderBy('name');
 
         if ($search !== '') {
             $term = '%'.$search.'%';
-            $query->whereHas('user', function ($uq) use ($term) {
+            $userQuery->where(function ($uq) use ($term) {
                 $uq->where('name', 'like', $term)
-                    ->orWhere('email', 'like', $term);
+                    ->orWhere('email', 'like', $term)
+                    ->orWhereHas('officeStaff', function ($oq) use ($term) {
+                        $oq->where('staff_id', 'like', $term);
+                    });
             });
         }
 
         $tz = config('app.timezone');
+        $staffUsers = $userQuery->get();
+        $selectedDate = Carbon::parse($date)->startOfDay();
+        $isFutureDate = $selectedDate->gt(now()->startOfDay());
+        $attendanceRows = Attendance::query()
+            ->whereDate('date', $date)
+            ->whereIn('user_id', $staffUsers->pluck('id'))
+            ->get()
+            ->keyBy('user_id');
 
-        $rows = $query->get()->map(function (Attendance $a) use ($tz) {
-            $user = $a->user;
+        $rows = $staffUsers->map(function (User $user) use ($attendanceRows, $tz, $date, $isFutureDate) {
+            $a = $attendanceRows->get($user->id);
             $roleLabel = $user->role?->display_name ?? ($user->role?->name ?? '—');
-            $dateStr = $a->date->format('Y-m-d');
+            $dateStr = $a?->date?->format('Y-m-d') ?? $date;
 
-            $inRaw = $a->getRawOriginal('check_in') ?? $a->check_in;
-            $outRaw = $a->getRawOriginal('check_out') ?? $a->check_out;
-
-            $in = $this->formatClock($dateStr, $inRaw, $tz);
-            $out = $this->formatClock($dateStr, $outRaw, $tz);
+            $inRaw = $a ? ($a->getRawOriginal('check_in') ?? $a->check_in) : null;
+            $outRaw = $a ? ($a->getRawOriginal('check_out') ?? $a->check_out) : null;
+            $in = $a ? $this->formatClock($dateStr, $inRaw, $tz) : null;
+            $out = $a ? $this->formatClock($dateStr, $outRaw, $tz) : null;
 
             if ($in && $out) {
                 $checkInDisplay = $in.' - '.$out;
@@ -56,22 +83,27 @@ class AttendanceDirectoryController extends Controller
                 $checkInDisplay = '-- : --';
             }
 
-            $status = match ($a->status) {
-                'on_leave' => 'ON_LEAVE',
-                'absent' => 'ABSENT',
-                default => 'PRESENT',
-            };
+            $status = $a
+                ? ($isFutureDate
+                    ? ($a->status === 'on_leave' ? 'ON_LEAVE' : 'NOT_MARKED')
+                    : match ($a->status) {
+                        'on_leave' => 'ON_LEAVE',
+                        'absent' => 'ABSENT',
+                        default => 'PRESENT',
+                    })
+                : ($isFutureDate ? 'NOT_MARKED' : 'ABSENT');
 
             return [
-                'attendance_id' => $a->id,
+                'attendance_id' => $a?->id,
                 'user_id' => $user->id,
-                'id' => (string) ($user->officeStaff?->staff_id ?? 'U-'.$user->id),
+                'id' => $this->resolveEmployeeId($user),
                 'name' => $user->name,
                 'role' => is_string($roleLabel) ? str_replace('_', ' ', $roleLabel) : $roleLabel,
                 'phone' => $user->staffProfile?->phone ?? '—',
                 'email' => $user->email,
                 'checkIn' => $checkInDisplay,
                 'status' => $status,
+                'leave_reason' => $a?->status === 'on_leave' ? ($a->remarks ?: '—') : null,
                 'avatar' => 'https://ui-avatars.com/api/?size=128&background=EBF4DF&color=5E821A&name='.rawurlencode($user->name),
             ];
         });
@@ -83,7 +115,18 @@ class AttendanceDirectoryController extends Controller
     {
         $user = User::query()
             ->withTrashed()
-            ->with(['role', 'staffProfile', 'officeStaff'])
+            ->with([
+                'role',
+                'staffProfile',
+                'officeStaff.units',
+                'unitHead.unit',
+                'coordinator.unit',
+                'coordinator.schools',
+                'coach.school.unit',
+                'coach.school.coordinator.user',
+                'activityHead.activity',
+                'salesExecutive',
+            ])
             ->find($userId);
 
         if (! $user) {
@@ -122,10 +165,26 @@ class AttendanceDirectoryController extends Controller
                 'reason' => $a->remarks,
             ]];
         })->all();
+        $today = now()->startOfDay();
+        $endDate = $targetMonth->copy()->endOfMonth();
+        $cursor = $targetMonth->copy()->startOfMonth();
+        while ($cursor->lte($endDate)) {
+            $dateStr = $cursor->format('Y-m-d');
+            if (! isset($calendar[$dateStr]) && $cursor->lte($today)) {
+                $calendar[$dateStr] = [
+                    'status' => 'ABSENT',
+                    'in' => null,
+                    'out' => null,
+                    'reason' => null,
+                ];
+            }
+            $cursor->addDay();
+        }
+        ksort($calendar);
 
         $presentDays = $monthRows->whereIn('status', ['present', 'late'])->count();
         $leaveDays = $monthRows->where('status', 'on_leave')->count();
-        $absentDays = $monthRows->where('status', 'absent')->count();
+        $absentDays = collect($calendar)->where('status', 'ABSENT')->count();
         $trackedDays = max($presentDays + $leaveDays + $absentDays, 1);
         $attendanceRate = round(($presentDays / $trackedDays) * 100).'%';
 
@@ -156,18 +215,20 @@ class AttendanceDirectoryController extends Controller
             })
             ->values();
 
+        $assignment = $this->resolveAssignment($user);
+
         return $this->successResponse([
             'staff' => [
-                'id' => (string) ($user->officeStaff?->staff_id ?? 'U-'.$user->id),
+                'id' => $this->resolveEmployeeId($user),
                 'user_id' => $user->id,
                 'name' => $user->name,
                 'role' => strtoupper((string) ($user->role?->name ?? 'staff')),
                 'role_label' => $user->role?->display_name ?? str_replace('_', ' ', (string) ($user->role?->name ?? 'Staff')),
                 'phone' => $user->staffProfile?->phone,
                 'email' => $user->email,
-                'unit' => '—',
-                'coordinator' => '—',
-                'school' => '—',
+                'unit' => $assignment['unit'],
+                'coordinator' => $assignment['coordinator'],
+                'school' => $assignment['school'],
                 'avatar' => 'https://ui-avatars.com/api/?size=160&background=EBF4DF&color=5E821A&name='.rawurlencode($user->name),
                 'status' => $statusLabel,
                 'salary' => [
@@ -204,5 +265,51 @@ class AttendanceDirectoryController extends Controller
         }
 
         return Carbon::parse($t)->timezone($tz)->format('h:i A');
+    }
+
+    private function resolveEmployeeId(User $user): string
+    {
+        return (string) (
+            $user->officeStaff?->staff_id
+            ?? $user->unitHead?->staff_id
+            ?? $user->coordinator?->staff_id
+            ?? $user->coach?->staff_id
+            ?? $user->activityHead?->staff_id
+            ?? $user->salesExecutive?->staff_id
+            ?? ('U-'.$user->id)
+        );
+    }
+
+    private function resolveAssignment(User $user): array
+    {
+        $unit = '—';
+        $coordinator = '—';
+        $school = '—';
+        $roleName = (string) ($user->role?->name ?? '');
+
+        if ($roleName === 'office_staff') {
+            $unitNames = $user->officeStaff?->units?->pluck('name')->filter()->unique()->values()->all() ?? [];
+            $unit = count($unitNames) > 0 ? implode(', ', $unitNames) : '—';
+        } elseif ($roleName === 'unit_head') {
+            $unit = $user->unitHead?->unit?->name ?? '—';
+        } elseif ($roleName === 'coordinator') {
+            $unit = $user->coordinator?->unit?->name ?? '—';
+            $schoolNames = $user->coordinator?->schools?->pluck('name')->filter()->unique()->values()->all() ?? [];
+            $school = count($schoolNames) > 0 ? implode(', ', $schoolNames) : '—';
+        } elseif ($roleName === 'coach') {
+            $school = $user->coach?->school?->name ?? '—';
+            $unit = $user->coach?->school?->unit?->name ?? '—';
+            $coordinator = $user->coach?->school?->coordinator?->user?->name ?? '—';
+        } elseif ($roleName === 'activity_head') {
+            $unit = $user->activityHead?->activity?->name ?? '—';
+        } elseif ($roleName === 'sales_executive') {
+            $unit = 'Field';
+        }
+
+        return [
+            'unit' => $unit,
+            'coordinator' => $coordinator,
+            'school' => $school,
+        ];
     }
 }

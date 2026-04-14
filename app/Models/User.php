@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Traits\HasRoles;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -44,5 +45,30 @@ class User extends Authenticatable
     public function officeStaff()
     {
         return $this->hasOne(OfficeStaff::class, 'user_id');
+    }
+
+    public function unitHead(): HasOne
+    {
+        return $this->hasOne(UnitHead::class, 'user_id');
+    }
+
+    public function coordinator(): HasOne
+    {
+        return $this->hasOne(Coordinator::class, 'user_id');
+    }
+
+    public function coach(): HasOne
+    {
+        return $this->hasOne(Coach::class, 'user_id');
+    }
+
+    public function activityHead(): HasOne
+    {
+        return $this->hasOne(ActivityHead::class, 'user_id');
+    }
+
+    public function salesExecutive(): HasOne
+    {
+        return $this->hasOne(SalesExecutive::class, 'user_id');
     }
 }

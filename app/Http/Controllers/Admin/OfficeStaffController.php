@@ -127,13 +127,24 @@ class OfficeStaffController extends Controller
             ->get();
 
         $salaryHistoryPreview = $preview->map(function (Payroll $p) {
+            $total = (float) $p->amount;
+            $paid = (float) ($p->amount_paid ?? 0);
+            $pending = max(0, $total - $paid);
             return [
+                'id' => $p->id,
                 'date' => $p->paid_at
                     ? Carbon::parse($p->paid_at)->format('M j, Y')
                     : Carbon::createFromFormat('Y-m', $p->month)->endOfMonth()->format('M j, Y'),
                 'method' => 'Bank Transfer',
-                'amount' => $this->formatMoney((float) $p->amount),
+                'amount' => $this->formatMoney($total),
+                'amount_paid' => $this->formatMoney($paid),
+                'pending_amount' => $this->formatMoney($pending),
                 'status' => strtoupper($p->status === 'paid' ? 'PAID' : ($p->status === 'pending' ? 'PENDING' : 'FAILED')),
+                'raw_month' => $p->month,
+                'raw_amount' => $total,
+                'raw_amount_paid' => $paid,
+                'raw_status' => $p->status,
+                'paid_at_iso' => $p->paid_at ? Carbon::parse($p->paid_at)->format('Y-m-d') : null,
             ];
         });
 
@@ -340,22 +351,30 @@ class OfficeStaffController extends Controller
         $ledger = $rows->map(function (Payroll $p) use ($wageType) {
             $monthLabel = Carbon::createFromFormat('Y-m', $p->month)->format('F Y');
             $base = (float) $p->amount;
+            $paid = (float) ($p->amount_paid ?? 0);
+            $pending = max(0, $base - $paid);
 
             return [
                 'id' => $p->id,
                 'month' => $monthLabel,
                 'cycle' => $wageType === 'Daily' ? 'Daily' : 'Monthly',
                 'base' => $this->formatMoney($base),
-                'deductions' => $this->formatMoney(0),
+                'deductions' => $this->formatMoney($pending),
                 'bonus' => $this->formatMoney(0),
-                'total' => $this->formatMoney($base),
+                'total' => $this->formatMoney($paid),
+                'pending_amount' => $this->formatMoney($pending),
                 'status' => $p->status === 'paid' ? 'PAID' : ($p->status === 'pending' ? 'PENDING' : 'FAILED'),
                 'date' => $p->paid_at ? Carbon::parse($p->paid_at)->format('M j, Y') : '—',
+                'raw_month' => $p->month,
+                'raw_amount' => $base,
+                'raw_amount_paid' => $paid,
+                'raw_status' => $p->status,
+                'paid_at_iso' => $p->paid_at ? Carbon::parse($p->paid_at)->format('Y-m-d') : null,
             ];
         });
 
         $paid = $rows->where('status', 'paid');
-        $annualTotal = $paid->sum('amount');
+        $annualTotal = $rows->sum('amount_paid');
         $nextPending = $rows->firstWhere('status', 'pending');
         $nextPayout = $nextPending
             ? Carbon::createFromFormat('Y-m', $nextPending->month)->endOfMonth()->format('M j, Y')
@@ -386,19 +405,89 @@ class OfficeStaffController extends Controller
         $validated = $request->validate([
             'month' => ['required', 'regex:/^\d{4}-\d{2}$/'],
             'amount' => 'required|numeric|min:0',
+            'amount_paid_now' => 'required|numeric|min:0',
             'status' => 'required|in:pending,paid,failed',
             'paid_at' => 'nullable|date',
         ]);
 
+        $total = (float) $validated['amount'];
+        $paidNow = min($total, max(0, (float) $validated['amount_paid_now']));
+        $pending = max(0, $total - $paidNow);
+        $status = $pending <= 0.0001 ? 'paid' : ($validated['status'] === 'failed' ? 'failed' : 'pending');
+
         $payroll = Payroll::create([
             'user_id' => $record->user_id,
             'month' => $validated['month'],
-            'amount' => $validated['amount'],
-            'status' => $validated['status'],
-            'paid_at' => $validated['paid_at'] ?? ($validated['status'] === 'paid' ? now() : null),
+            'amount' => $total,
+            'amount_paid' => $paidNow,
+            'status' => $status,
+            'paid_at' => $validated['paid_at'] ?? ($status === 'paid' ? now() : null),
         ]);
 
         return $this->successResponse($payroll, 'Payroll entry added.', 201);
+    }
+
+    public function updatePayroll(Request $request, string $id, string $payrollId)
+    {
+        $record = OfficeStaff::find($id);
+        if (! $record) {
+            return $this->errorResponse('Office staff not found', 404);
+        }
+
+        $payroll = Payroll::query()
+            ->where('id', $payrollId)
+            ->where('user_id', $record->user_id)
+            ->first();
+        if (! $payroll) {
+            return $this->errorResponse('Payroll entry not found', 404);
+        }
+
+        $validated = $request->validate([
+            'month' => ['sometimes', 'required', 'regex:/^\d{4}-\d{2}$/'],
+            'amount' => 'sometimes|required|numeric|min:0',
+            'amount_paid_now' => 'sometimes|required|numeric|min:0',
+            'status' => 'sometimes|required|in:pending,paid,failed,completed',
+            'paid_at' => 'nullable|date',
+        ]);
+
+        if (isset($validated['status']) && $validated['status'] === 'completed') {
+            $validated['status'] = 'paid';
+        }
+
+        if (isset($validated['status']) && $validated['status'] === 'paid' && ! array_key_exists('paid_at', $validated)) {
+            $validated['paid_at'] = now();
+        }
+
+        if (isset($validated['status']) && $validated['status'] !== 'paid' && array_key_exists('paid_at', $validated) && ! $validated['paid_at']) {
+            $validated['paid_at'] = null;
+        }
+
+        $total = (float) ($validated['amount'] ?? $payroll->amount);
+        $paidNow = (float) ($validated['amount_paid_now'] ?? $payroll->amount_paid);
+        $paidNow = min($total, max(0, $paidNow));
+        $pending = max(0, $total - $paidNow);
+
+        $status = $validated['status'] ?? $payroll->status;
+        if ($status === 'completed') {
+            $status = 'paid';
+        }
+        if ($pending <= 0.0001) {
+            $status = 'paid';
+        } elseif ($status === 'paid') {
+            $status = 'pending';
+        }
+
+        $payroll->update([
+            'month' => $validated['month'] ?? $payroll->month,
+            'amount' => $total,
+            'amount_paid' => $paidNow,
+            'status' => $status,
+            'paid_at' => ($status === 'paid')
+                ? ($validated['paid_at'] ?? $payroll->paid_at ?? now())
+                : null,
+        ]);
+
+        return $this->successResponse($payroll->fresh(), 'Payroll entry updated.');
     }
 
     private function formatMoney(float $amount): string

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 
 use App\Models\UnitHead;
+use App\Models\OfficeStaff;
 use App\Models\User;
 use App\Models\StaffProfile;
 use App\Models\Unit;
@@ -17,6 +18,10 @@ class UnitHeadController extends Controller
     public function index(Request $request)
     {
         $query = UnitHead::with(['user.staffProfile', 'unit']);
+        $allowedUnitIds = $this->resolveAllowedUnitIds($request);
+        if ($allowedUnitIds !== null) {
+            $query->whereIn('unit_id', $allowedUnitIds);
+        }
 
         if ($request->has('search') && !empty($request->search)) {
             $search = $request->search;
@@ -109,6 +114,13 @@ class UnitHeadController extends Controller
     public function show(string $id)
     {
         $head = UnitHead::with(['user.staffProfile', 'unit.schools'])->findOrFail($id);
+        $allowedUnitIds = $this->resolveAllowedUnitIds(request());
+        if ($allowedUnitIds !== null && ! in_array((int) $head->unit_id, $allowedUnitIds, true)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Unauthorized to access this unit head.'
+            ], 403);
+        }
         return response()->json([
             'status' => 'success',
             'data' => $head
@@ -200,5 +212,22 @@ class UnitHeadController extends Controller
                 'message' => 'Failed to delete: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    private function resolveAllowedUnitIds(Request $request): ?array
+    {
+        $authUser = $request->user();
+        if (! $authUser || ! $authUser->hasRole('office_staff')) {
+            return null;
+        }
+
+        return OfficeStaff::query()
+            ->where('user_id', $authUser->id)
+            ->first()
+            ?->units()
+            ->pluck('units.id')
+            ->map(fn ($unitId) => (int) $unitId)
+            ->values()
+            ->all() ?? [];
     }
 }

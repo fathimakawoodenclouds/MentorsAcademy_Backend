@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\OfficeStaff;
 use App\Models\School;
 use App\Models\SchoolActivity;
 use App\Models\Unit;
@@ -19,6 +20,10 @@ class SchoolController extends Controller
     public function index(Request $request)
     {
         $query = School::with(['unit', 'coordinator.user']);
+        $allowedUnitIds = $this->resolveAllowedUnitIds($request);
+        if ($allowedUnitIds !== null) {
+            $query->whereIn('unit_id', $allowedUnitIds);
+        }
 
         if ($request->filled('unit_id')) {
             $query->where('unit_id', $request->unit_id);
@@ -110,6 +115,11 @@ class SchoolController extends Controller
             return $this->errorResponse('School not found', 404);
         }
 
+        $allowedUnitIds = $this->resolveAllowedUnitIds(request());
+        if ($allowedUnitIds !== null && ! in_array((int) $school->unit_id, $allowedUnitIds, true)) {
+            return $this->errorResponse('Unauthorized to access this school.', 403);
+        }
+
         return $this->successResponse($school, 'School details retrieved.');
     }
 
@@ -179,5 +189,22 @@ class SchoolController extends Controller
         $school->delete();
 
         return $this->successResponse(null, 'School successfully deleted!');
+    }
+
+    private function resolveAllowedUnitIds(Request $request): ?array
+    {
+        $authUser = $request->user();
+        if (! $authUser || ! $authUser->hasRole('office_staff')) {
+            return null;
+        }
+
+        return OfficeStaff::query()
+            ->where('user_id', $authUser->id)
+            ->first()
+            ?->units()
+            ->pluck('units.id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all() ?? [];
     }
 }

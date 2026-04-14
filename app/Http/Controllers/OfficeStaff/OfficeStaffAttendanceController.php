@@ -43,6 +43,7 @@ class OfficeStaffAttendanceController extends Controller
 
         $date = $request->input('date', now()->toDateString());
         $search = trim((string) $request->input('search', ''));
+        $isFutureDate = Carbon::parse($date)->startOfDay()->gt(now()->startOfDay());
 
         $userUnitMap = $this->resolveUserUnitMap($unitIds);
         $allowedUserIds = array_keys($userUnitMap);
@@ -85,7 +86,7 @@ class OfficeStaffAttendanceController extends Controller
             ->keyBy('user_id');
 
         $rows = collect($allowedUserIds)
-            ->map(function (int $uid) use ($users, $attendanceByUser, $userUnitMap, $date) {
+            ->map(function (int $uid) use ($users, $attendanceByUser, $userUnitMap, $date, $isFutureDate) {
                 $u = $users->get($uid);
                 if (! $u) {
                     return null;
@@ -94,8 +95,9 @@ class OfficeStaffAttendanceController extends Controller
                 $a = $attendanceByUser->get($uid);
                 $status = match ($a?->status) {
                     'on_leave' => 'ON_LEAVE',
-                    'present', 'late' => 'PRESENT',
-                    default => 'ABSENT',
+                    'present', 'late' => $isFutureDate ? 'NOT_MARKED' : 'PRESENT',
+                    'absent' => 'ABSENT',
+                    default => $isFutureDate ? 'NOT_MARKED' : 'ABSENT',
                 };
                 $unitMeta = $userUnitMap[$uid] ?? null;
 
