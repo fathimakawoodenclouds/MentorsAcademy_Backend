@@ -18,10 +18,14 @@ class AuthController extends Controller
             'password' => 'required'
         ]);
 
-        $user = User::where('email', $request->email)->with('role')->first();
+        $user = User::where('email', $request->email)->with(['role', 'staffProfile'])->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             return $this->errorResponse('Invalid credentials', 401);
+        }
+
+        if ($user->hasRole('office_staff') && $user->staffProfile && $user->staffProfile->status !== 'active') {
+            return $this->errorResponse('Your account is not active. Contact an administrator.', 403);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;

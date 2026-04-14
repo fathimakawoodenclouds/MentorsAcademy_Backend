@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Traits\HasReadableId;
@@ -50,5 +51,11 @@ class Unit extends Model
     public function coordinators()
     {
         return $this->hasMany(Coordinator::class);
+    }
+
+    public function officeStaffMembers(): BelongsToMany
+    {
+        return $this->belongsToMany(OfficeStaff::class, 'office_staff_unit', 'unit_id', 'office_staff_id')
+            ->withTimestamps();
     }
 }

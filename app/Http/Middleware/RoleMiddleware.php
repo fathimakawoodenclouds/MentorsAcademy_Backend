@@ -20,7 +20,18 @@ class RoleMiddleware
             ], 401);
         }
 
-        if (! $request->user()->hasAnyRole($roles)) {
+        $allowedRoles = collect($roles)
+            ->flatMap(static function (string $segment): array {
+                $parts = preg_split('/\s*[,|]\s*/', $segment);
+
+                return $parts === false ? [] : $parts;
+            })
+            ->map(static fn (string $r): string => trim($r))
+            ->filter()
+            ->values()
+            ->all();
+
+        if (! $request->user()->hasAnyRole($allowedRoles)) {
             return response()->json([
                 'status' => false,
                 'message' => 'Forbidden. Insufficient permissions.'

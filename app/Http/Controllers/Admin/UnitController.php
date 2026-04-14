@@ -148,4 +148,16 @@ class UnitController extends Controller
         
         return response()->json($users);
     }
+
+    /**
+     * Lightweight unit options list (for selectors).
+     */
+    public function options()
+    {
+        $units = Unit::query()
+            ->orderBy('name')
+            ->get(['id', 'unit_id', 'name']);
+
+        return $this->successResponse($units, 'Unit options loaded.');
+    }
 }

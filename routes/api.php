@@ -1,77 +1,134 @@
 <?php
 
+use App\Http\Controllers\Admin\AttendanceDirectoryController;
+use App\Http\Controllers\Admin\ActivityController;
+use App\Http\Controllers\Admin\ActivityHeadController;
+use App\Http\Controllers\Admin\ChatController;
+use App\Http\Controllers\Admin\CoachController;
+use App\Http\Controllers\Admin\CoordinatorController;
+use App\Http\Controllers\Admin\Ecom\BrandController;
+use App\Http\Controllers\Admin\Ecom\CategoryController;
+use App\Http\Controllers\Admin\Ecom\ProductController;
+use App\Http\Controllers\Admin\MediaUploadController;
+use App\Http\Controllers\Admin\OfficeStaffController;
+use App\Http\Controllers\Admin\SalesExecutiveController;
+use App\Http\Controllers\Admin\SalesExecutiveTrackingController;
+use App\Http\Controllers\Admin\SchoolController;
+use App\Http\Controllers\Admin\UnitController;
+use App\Http\Controllers\Admin\UnitHeadController;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\LocationController;
+use App\Http\Controllers\OfficeStaff\OfficeStaffDashboardController;
+use App\Http\Controllers\OfficeStaff\OfficeStaffAttendanceController;
+use App\Http\Controllers\SuperAdmin\AdminManagerController;
+use App\Models\SalesExecutive;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 
 /**
- * SUPER ADMIN ROUTES
+ * SUPER ADMIN — sensitive / catalog routes (super_admin only)
  */
 Route::prefix('v1/super-admin')->middleware(['auth:sanctum', 'role:super_admin'])->group(function () {
-    Route::get('/admins', [\App\Http\Controllers\SuperAdmin\AdminManagerController::class, 'index']);
-    Route::post('/admins', [\App\Http\Controllers\SuperAdmin\AdminManagerController::class, 'store']);
-    Route::get('/admins/{id}', [\App\Http\Controllers\SuperAdmin\AdminManagerController::class, 'show']);
-    Route::put('/admins/{id}', [\App\Http\Controllers\SuperAdmin\AdminManagerController::class, 'update']);
-    Route::delete('/admins/{id}', [\App\Http\Controllers\SuperAdmin\AdminManagerController::class, 'destroy']);
+    Route::get('/admins', [AdminManagerController::class, 'index']);
+    Route::post('/admins', [AdminManagerController::class, 'store']);
+    Route::get('/admins/{id}', [AdminManagerController::class, 'show']);
+    Route::put('/admins/{id}', [AdminManagerController::class, 'update']);
+    Route::delete('/admins/{id}', [AdminManagerController::class, 'destroy']);
 
-    // Roles dynamically for UI
-    Route::get('/roles', [\App\Http\Controllers\SuperAdmin\AdminManagerController::class, 'getRoles']);
+    Route::get('/roles', [AdminManagerController::class, 'getRoles']);
 
-    // Unit Management
-    Route::get('/units/potential-heads', [\App\Http\Controllers\Admin\UnitController::class, 'getPotentialUnitHeads']);
-    Route::apiResource('units', \App\Http\Controllers\Admin\UnitController::class);
-    Route::apiResource('unit-heads', \App\Http\Controllers\Admin\UnitHeadController::class);
+    Route::get('office-staff/{id}/attendance', [OfficeStaffController::class, 'attendance'])->whereNumber('id');
+    Route::get('office-staff/{id}/payrolls', [OfficeStaffController::class, 'payrolls'])->whereNumber('id');
+    Route::post('office-staff/{id}/payrolls', [OfficeStaffController::class, 'storePayroll'])->whereNumber('id');
+    Route::apiResource('office-staff', OfficeStaffController::class);
 
-    // School Management
-    Route::apiResource('schools', \App\Http\Controllers\Admin\SchoolController::class);
+    Route::get('/sales-users', [ChatController::class, 'salesUsers']);
+    Route::get('/chat/conversations', [ChatController::class, 'conversations']);
+    Route::get('/chat/messages/{userId}', [ChatController::class, 'messages']);
+    Route::post('/chat/send', [ChatController::class, 'send']);
+    Route::patch('/chat/read', [ChatController::class, 'markAsRead']);
+    Route::get('/chat/users', [ChatController::class, 'availableUsers']);
+    Route::get('/media-files', [MediaUploadController::class, 'index']);
 
-    // Coach Management
-    Route::apiResource('coaches', \App\Http\Controllers\Admin\CoachController::class);
-    Route::get('/activities', [\App\Http\Controllers\Admin\ActivityController::class, 'index']);
-    Route::apiResource('activity-heads', \App\Http\Controllers\Admin\ActivityHeadController::class);
-    Route::apiResource('coordinators', \App\Http\Controllers\Admin\CoordinatorController::class);
-    Route::apiResource('sales-executives', \App\Http\Controllers\Admin\SalesExecutiveController::class);
+    Route::get('/ecom/brands', [BrandController::class, 'index']);
+    Route::post('/ecom/brands', [BrandController::class, 'store']);
+    Route::get('/ecom/categories/tree', [CategoryController::class, 'tree']);
+    Route::get('/ecom/categories/options', [CategoryController::class, 'options']);
+    Route::apiResource('ecom/categories', CategoryController::class)->except(['show']);
+    Route::patch('/ecom/products/{product}/featured', [ProductController::class, 'toggleFeatured']);
+    Route::apiResource('ecom/products', ProductController::class);
+});
 
-    // Location Data (India focus)
+/**
+ * SUPER ADMIN — operations data (super_admin + office_staff, same URLs under /v1/super-admin)
+ */
+Route::prefix('v1/super-admin')->middleware(['auth:sanctum', 'role:super_admin,office_staff'])->group(function () {
+    Route::get('/units/options', [UnitController::class, 'options']);
+    Route::get('/units/potential-heads', [UnitController::class, 'getPotentialUnitHeads']);
+    Route::apiResource('units', UnitController::class);
+    Route::apiResource('unit-heads', UnitHeadController::class);
+
+    Route::apiResource('schools', SchoolController::class);
+
+    Route::apiResource('coaches', CoachController::class);
+    Route::get('/activities', [ActivityController::class, 'index']);
+    Route::apiResource('activity-heads', ActivityHeadController::class);
+    Route::apiResource('coordinators', CoordinatorController::class);
+    Route::get('sales-executives/{id}/tracking', [SalesExecutiveTrackingController::class, 'summary'])->whereNumber('id');
+    Route::post('sales-executives/{id}/tracking/ping', [SalesExecutiveTrackingController::class, 'storePing'])->whereNumber('id');
+    Route::get('sales-executives/{id}/visits', [SalesExecutiveTrackingController::class, 'visits'])->whereNumber('id');
+    Route::apiResource('sales-executives', SalesExecutiveController::class);
+
+    Route::get('/attendance-directory', [AttendanceDirectoryController::class, 'index']);
+    Route::get('/attendance-directory/{userId}/overview', [AttendanceDirectoryController::class, 'overview'])->whereNumber('userId');
+
     Route::prefix('locations')->group(function () {
-        Route::get('/states', [\App\Http\Controllers\LocationController::class, 'getStates']);
-        Route::get('/cities/{stateId}', [\App\Http\Controllers\LocationController::class, 'getCities']);
+        Route::get('/states', [LocationController::class, 'getStates']);
+        Route::get('/cities/{stateId}', [LocationController::class, 'getCities']);
     });
 
-    // Chat / Messaging
-    Route::get('/sales-users', [\App\Http\Controllers\Admin\ChatController::class, 'salesUsers']);
-    Route::get('/chat/conversations', [\App\Http\Controllers\Admin\ChatController::class, 'conversations']);
-    Route::get('/chat/messages/{userId}', [\App\Http\Controllers\Admin\ChatController::class, 'messages']);
-    Route::post('/chat/send', [\App\Http\Controllers\Admin\ChatController::class, 'send']);
-    Route::patch('/chat/read', [\App\Http\Controllers\Admin\ChatController::class, 'markAsRead']);
-    Route::get('/chat/users', [\App\Http\Controllers\Admin\ChatController::class, 'availableUsers']);
-    Route::post('/upload-media', [\App\Http\Controllers\Admin\MediaUploadController::class, 'upload']);
+    Route::post('/upload-media', [MediaUploadController::class, 'upload']);
 });
 
 /**
  * SALES EXECUTIVE ROUTES
  */
 Route::prefix('v1/sales-executive')->middleware(['auth:sanctum', 'role:sales_executive'])->group(function () {
-    Route::get('/profile', function (\Illuminate\Http\Request $request) {
+    Route::get('/profile', function (Request $request) {
         $user = $request->user()->load(['staffProfile', 'role']);
-        $salesExec = \App\Models\SalesExecutive::where('user_id', $user->id)->first();
+        $salesExec = SalesExecutive::where('user_id', $user->id)->first();
+
         return response()->json([
             'status' => 'success',
             'data' => [
                 'user' => $user,
                 'sales_executive' => $salesExec,
-            ]
+            ],
         ]);
     });
 
-    // Chat / Messaging
-    Route::get('/chat/conversations', [\App\Http\Controllers\Admin\ChatController::class, 'conversations']);
-    Route::get('/chat/messages/{userId}', [\App\Http\Controllers\Admin\ChatController::class, 'messages']);
-    Route::post('/chat/send', [\App\Http\Controllers\Admin\ChatController::class, 'send']);
-    Route::patch('/chat/read', [\App\Http\Controllers\Admin\ChatController::class, 'markAsRead']);
-    Route::get('/chat/users', [\App\Http\Controllers\Admin\ChatController::class, 'availableUsers']);
-    Route::post('/upload-media', [\App\Http\Controllers\Admin\MediaUploadController::class, 'upload']);
+    Route::get('/chat/conversations', [ChatController::class, 'conversations']);
+    Route::get('/chat/messages/{userId}', [ChatController::class, 'messages']);
+    Route::post('/chat/send', [ChatController::class, 'send']);
+    Route::patch('/chat/read', [ChatController::class, 'markAsRead']);
+    Route::get('/chat/users', [ChatController::class, 'availableUsers']);
+    Route::post('/upload-media', [MediaUploadController::class, 'upload']);
+
+    Route::post('/tracking/ping', [SalesExecutiveTrackingController::class, 'storeMyPing']);
 });
 
 /**
- * PUBLIC/AUTH ROUTES
+ * OFFICE STAFF ROUTES (portal-only)
  */
-Route::post('/login', [\App\Http\Controllers\AuthController::class, 'login']);
+Route::prefix('v1/office-staff')->middleware(['auth:sanctum', 'role:office_staff'])->group(function () {
+    Route::get('/dashboard', [OfficeStaffDashboardController::class, 'dashboard']);
+    Route::post('/attendance/check-in', [OfficeStaffDashboardController::class, 'checkIn']);
+    Route::post('/attendance/check-out', [OfficeStaffDashboardController::class, 'checkOut']);
+    Route::get('/attendance/overview', [OfficeStaffAttendanceController::class, 'overview']);
+    Route::post('/attendance/approve-leave', [OfficeStaffAttendanceController::class, 'approveLeave']);
+});
+
+Broadcast::routes(['middleware' => ['auth:sanctum']]);
+
+Route::post('/login', [AuthController::class, 'login']);

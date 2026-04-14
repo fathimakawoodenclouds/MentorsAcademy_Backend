@@ -3,25 +3,26 @@
 namespace App\Models;
 
 use App\Traits\HasReadableId;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class SalesExecutive extends Model
+class OfficeStaff extends Model
 {
     use HasFactory, HasReadableId, SoftDeletes;
+
+    protected $table = 'office_staff';
 
     protected $fillable = [
         'user_id',
         'staff_id',
-        'da_allowance',
-        'ta_allowance',
     ];
 
     protected function getReadableIdConfig(): array
     {
         return [
-            'prefix' => 'SE',
+            'prefix' => 'EMP',
             'column' => 'staff_id',
         ];
     }
@@ -31,18 +32,9 @@ class SalesExecutive extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function gpsPings()
+    public function units(): BelongsToMany
     {
-        return $this->hasMany(SalesGpsPing::class);
-    }
-
-    public function salesVisits()
-    {
-        return $this->hasMany(SalesVisit::class);
-    }
-
-    public function incentiveRecords()
-    {
-        return $this->hasMany(SalesIncentiveRecord::class);
+        return $this->belongsToMany(Unit::class, 'office_staff_unit', 'office_staff_id', 'unit_id')
+            ->withTimestamps();
     }
 }

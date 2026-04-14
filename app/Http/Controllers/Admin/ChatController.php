@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\MessageSent;
 use App\Http\Controllers\Controller;
 use App\Models\Message;
 use App\Models\User;
@@ -24,7 +25,7 @@ class ChatController extends Controller
         $conversationUserIds = Message::where('sender_id', $userId)
             ->orWhere('receiver_id', $userId)
             ->get()
-            ->map(fn($msg) => $msg->sender_id === $userId ? $msg->receiver_id : $msg->sender_id)
+            ->map(fn ($msg) => $msg->sender_id === $userId ? $msg->receiver_id : $msg->sender_id)
             ->unique()
             ->values();
 
@@ -65,7 +66,7 @@ class ChatController extends Controller
                     'email' => $user->email,
                     'role' => $user->role->name ?? 'unknown',
                     'role_label' => ucwords(str_replace('_', ' ', $user->role->name ?? 'Unknown')),
-                    'avatar' => 'https://ui-avatars.com/api/?name=' . urlencode($user->name) . '&background=random',
+                    'avatar' => 'https://ui-avatars.com/api/?name='.urlencode($user->name).'&background=random',
                     'last_message' => $lastMsgPreview,
                     'last_message_time' => $lastMessage?->created_at?->diffForHumans(null, true, true),
                     'last_message_at' => $lastMessage?->created_at,
@@ -94,9 +95,9 @@ class ChatController extends Controller
         })->orWhere(function ($q) use ($authId, $userId) {
             $q->where('sender_id', $userId)->where('receiver_id', $authId);
         })
-        ->with(['sender:id,name,email', 'receiver:id,name,email', 'media'])
-        ->orderBy('created_at', 'desc')
-        ->paginate($limit);
+            ->with(['sender:id,name,email', 'receiver:id,name,email', 'media'])
+            ->orderBy('created_at', 'desc')
+            ->paginate($limit);
 
         // Reverse so oldest is first in the array (for chat display)
         $formatted = collect($messages->items())->reverse()->values()->map(function ($msg) use ($authId) {
@@ -109,7 +110,7 @@ class ChatController extends Controller
                 'is_read' => $msg->is_read,
                 'time' => $msg->created_at->format('h:i A'),
                 'date' => $msg->created_at->format('Y-m-d'),
-                'avatar' => 'https://ui-avatars.com/api/?name=' . urlencode($msg->sender->name) . '&background=random',
+                'avatar' => 'https://ui-avatars.com/api/?name='.urlencode($msg->sender->name).'&background=random',
             ];
 
             // Attach media info if exists
@@ -140,7 +141,7 @@ class ChatController extends Controller
                 'current_page' => $messages->currentPage(),
                 'last_page' => $messages->lastPage(),
                 'total' => $messages->total(),
-            ]
+            ],
         ]);
     }
 
@@ -176,6 +177,8 @@ class ChatController extends Controller
 
         $data = [
             'id' => $msg->id,
+            'sender_id' => $msg->sender_id,
+            'receiver_id' => $msg->receiver_id,
             'sender' => 'me',
             'sender_name' => $msg->sender->name,
             'text' => $msg->message,
@@ -195,6 +198,14 @@ class ChatController extends Controller
                 'file_size' => $msg->media->file_size,
             ];
         }
+
+        // Broadcast to receiver
+        $broadcastData = $data;
+        $broadcastData['sender'] = 'them';
+        // Add avatar for 'them' perspective
+        $broadcastData['avatar'] = 'https://ui-avatars.com/api/?name='.urlencode($msg->sender->name).'&background=random';
+
+        broadcast(new MessageSent($broadcastData, $validated['receiver_id']))->toOthers();
 
         return response()->json(['status' => 'success', 'data' => $data], 201);
     }
@@ -239,11 +250,11 @@ class ChatController extends Controller
             });
         }
 
-        if ($request->has('search') && !empty($request->search)) {
+        if ($request->has('search') && ! empty($request->search)) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%");
             });
         }
 
@@ -254,7 +265,7 @@ class ChatController extends Controller
                 'email' => $user->email,
                 'role' => $user->role->name ?? 'unknown',
                 'role_label' => ucwords(str_replace('_', ' ', $user->role->name ?? 'Unknown')),
-                'avatar' => 'https://ui-avatars.com/api/?name=' . urlencode($user->name) . '&background=random',
+                'avatar' => 'https://ui-avatars.com/api/?name='.urlencode($user->name).'&background=random',
             ];
         });
 
@@ -275,7 +286,7 @@ class ChatController extends Controller
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%");
             });
         }
 
@@ -285,7 +296,7 @@ class ChatController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'role_label' => 'Sales Executive',
-                'avatar' => 'https://ui-avatars.com/api/?name=' . urlencode($user->name) . '&background=random',
+                'avatar' => 'https://ui-avatars.com/api/?name='.urlencode($user->name).'&background=random',
                 'phone' => $user->staffProfile->phone ?? null,
             ];
         });
